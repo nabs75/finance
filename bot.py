@@ -131,6 +131,11 @@ def handle_msg(msgs):
 
                 if current_price and current_price > 0:
                     profit_pct = (current_price - entry_price) / entry_price
+
+                    # --- INTENSIVE SURVEILLANCE: AAPL ---
+                    if symbol == 'AAPL' and abs(profit_pct) >= 0.01:
+                         logger.warning(f"⚠️ INTENSIVE WATCH: AAPL variation > 1%! Current: {profit_pct*100:.2f}% (Price: {current_price})")
+
                     if profit_pct >= 0.05:
                         logger.warning(f"Taking Profit! {symbol} is up {profit_pct*100:.2f}% (Price: {current_price}, Entry: {entry_price})")
                         sell_position(symbol, current_price)

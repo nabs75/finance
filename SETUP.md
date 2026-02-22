@@ -18,8 +18,15 @@ POLYGON_API_KEY=<YOUR_POLYGON_API_KEY>
    ```
 
 4. Launch the bot:
+
+   To run in the foreground (terminal stays open):
    ```bash
    ./start_bot.sh
+   ```
+
+   To run as a **daemon** (keeps running after closing terminal):
+   ```bash
+   nohup ./start_bot.sh > bot.log 2>&1 &
    ```
 
 # Environment Configuration
