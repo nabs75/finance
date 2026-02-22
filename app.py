@@ -1,89 +1,75 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-from alpaca_trade_api.rest import REST
+import alpaca_trade_api as tradeapi
 import os
-from dotenv import load_dotenv
 
-# Chargement des clés API depuis le fichier .env (géré par Jules)
-load_dotenv()
+# --- CONFIGURATION PAGE ---
+st.set_page_config(page_title="Alpha-5 Dashboard", layout="wide")
 
-# Configuration Alpaca
-api = REST(
-    os.getenv('ALPACA_API_KEY'),
-    os.getenv('ALPACA_SECRET_KEY'),
-    os.getenv('ALPACA_BASE_URL')
-)
-
-# --- CONFIGURATION INTERFACE ---
-st.set_page_config(page_title="Alpha-5 Trading Dashboard", layout="wide", page_icon="📈")
-
+# Style CSS pour masquer les menus Streamlit et épurer l'interface
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: white; }
-    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stApp {background-color: #05070a;}
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🚀 Alpha-5 : Monitoring en Temps Réel")
-
-# --- RÉCUPÉRATION DES DONNÉES ---
-def get_data():
-    account = api.get_account()
-    positions = api.list_positions()
-    
-    # Transformation des positions en Tableau
-    pos_list = []
-    for p in positions:
-        pos_list.append({
-            "Action": p.symbol,
-            "Quantité": p.qty,
-            "Prix Achat": f"{float(p.avg_entry_price):.2f} $",
-            "Prix Actuel": f"{float(p.current_price):.2f} $",
-            "Profit/Perte %": round(float(p.unrealized_intraday_plpc) * 100, 2),
-            "Valeur": f"{float(p.market_value):.2f} $"
-        })
-    return account, pd.DataFrame(pos_list)
-
+# --- RÉCUPÉRATION DES SECRETS ---
 try:
-    account, df_positions = get_data()
+    # Utilisation des secrets Streamlit Cloud
+    ALPACA_KEY = st.secrets["ALPACA_API_KEY"]
+    ALPACA_SECRET = st.secrets["ALPACA_SECRET_KEY"]
+    ALPACA_URL = st.secrets["ALPACA_BASE_URL"]
+except Exception:
+    # Fallback local pour tes tests personnels
+    ALPACA_KEY = os.getenv("ALPACA_API_KEY")
+    ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY")
+    ALPACA_URL = os.getenv("ALPACA_BASE_URL")
 
-    # --- BARRE DE MÉTRIQUES ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Solde Cash", f"{float(account.cash):.2f} $")
-    col2.metric("📊 Valeur Portefeuille", f"{float(account.portfolio_value):.2f} $")
-    profit_today = float(account.equity) - float(account.last_equity)
-    col3.metric("📅 Profit Jour", f"{profit_today:.2f} $", f"{round((profit_today/float(account.last_equity))*100,2)}%")
+# Connexion API
+api = tradeapi.REST(ALPACA_KEY, ALPACA_SECRET, ALPACA_URL, api_version='v2')
 
-    st.divider()
+st.title("🚀 Alpha-5 : Terminal de Trading")
 
-    # --- TABLEAU DES OPÉRATIONS ---
-    st.subheader("🔎 Opérations en cours")
-    if not df_positions.empty:
-        # On colore la colonne Profit pour voir tout de suite si on approche des +5%
-        def color_profit(val):
-            color = 'green' if val >= 4.5 else 'white'
-            weight = 'bold' if val >= 4.5 else 'normal'
-            return f'color: {color}; font-weight: {weight}'
+# --- SIMULATION DE TEST (MOCK DATA) ---
+# Ce bloc permet de vérifier que tes alertes fonctionnent même le dimanche
+class MockPosition:
+    def __init__(self, symbol, profit_pc):
+        self.symbol = symbol
+        self.unrealized_intraday_plpc = profit_pc / 100
+        self.qty = "10"
+        self.current_price = "264.69"
+        self.avg_entry_price = "252.08"
 
-        st.dataframe(df_positions.style.map(color_profit, subset=['Profit/Perte %']), use_container_width=True)
-    else:
-        st.info("Aucune position ouverte pour le moment. Le robot est en attente de signaux.")
+# On crée une liste de positions qui contient notre test
+positions = [MockPosition("AAPL (TEST)", 4.65)]
 
-    # --- JAUGE DE PERFORMANCE ---
-    st.subheader("🎯 Proximité de l'objectif (+5%)")
-    if not df_positions.empty:
-        for index, row in df_positions.iterrows():
-            progress = min(max(row['Profit/Perte %'] / 5.0, 0.0), 1.0)
-            st.write(f"**{row['Action']}** ({row['Profit/Perte %']}%)")
-            st.progress(progress)
+# --- AFFICHAGE DES ALERTES DE PROFIT ---
+st.subheader("Surveillance des Objectifs (+5%)")
 
-except Exception as e:
-    st.error(f"Erreur de connexion aux APIs : {e}")
+for p in positions:
+    profit = float(p.unrealized_intraday_plpc) * 100
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.write(f"**{p.symbol}** | Profit actuel : `{profit:.2f}%` / Objectif : `5.00%`")
+        # Barre de progression (normée entre 0 et 1)
+        progress_val = min(max(profit / 5.0, 0.0), 1.0)
+        st.progress(progress_val)
+    
+    with col2:
+        if profit >= 4.5:
+            st.error(f"🔥 VENTE IMMINENTE")
+        elif profit > 0:
+            st.success(f"📈 En progression")
 
-# --- FOOTER ---
-st.sidebar.markdown("---")
-st.sidebar.write("🏦 **Compte lié :** Revolut Personnel")
-st.sidebar.write("⏲️ **Prochain virement :** Vendredi 22h")
-if st.sidebar.button("Rafraîchir les données"):
-    st.rerun()
+st.divider()
+
+# --- DONNÉES RÉELLES DU COMPTE ---
+try:
+    account = api.get_account()
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Solde Cash", f"{float(account.cash):,.2f} $")
+    col_b.metric("Valeur Portefeuille", f"{float
