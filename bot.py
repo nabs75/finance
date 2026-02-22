@@ -5,9 +5,11 @@ import threading
 import schedule
 import pandas as pd
 import numpy as np
+import pytz
+from datetime import datetime, time as dtime
 from dotenv import load_dotenv
 import alpaca_trade_api as tradeapi
-from polygon import WebSocketClient
+from polygon import WebSocketClient, RESTClient
 
 # --- CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -24,13 +26,14 @@ if not all([ALPACA_API_KEY, ALPACA_SECRET_KEY, POLYGON_API_KEY]):
     logger.error("Missing API Keys in .env")
     exit(1)
 
-# Initialize Alpaca API
+# Initialize APIs
 try:
     api = tradeapi.REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
+    poly_rest = RESTClient(api_key=POLYGON_API_KEY)
     account = api.get_account()
     logger.info(f"Connected to Alpaca: {account.status} (ID: {account.id})")
 except Exception as e:
-    logger.error(f"Failed to connect to Alpaca: {e}")
+    logger.error(f"Failed to connect to APIs: {e}")
     exit(1)
 
 # Global State
@@ -46,19 +49,15 @@ def get_market_data(api, symbol):
     Returns two DataFrames: df_15m, df_daily.
     """
     try:
-        # Fetch Daily Bars (need at least 50 for SMA50)
-        # Using string '1Day' which is compatible
+        # Fetch Daily Bars
         daily_bars_raw = api.get_bars(symbol, '1Day', limit=100)
         daily_bars = pd.DataFrame([b._raw for b in daily_bars_raw])
         if not daily_bars.empty:
              daily_bars['timestamp'] = pd.to_datetime(daily_bars['t'])
              daily_bars.set_index('timestamp', inplace=True)
-             # Rename columns to match filter expectations (lowercase) if needed
-             # Alpaca v2 raw keys are 'c', 'v', 'o', 'h', 'l'.
              daily_bars.rename(columns={'c': 'close', 'v': 'volume', 'o': 'open', 'h': 'high', 'l': 'low'}, inplace=True)
 
-        # Fetch 15m Bars (need at least 21 for volume avg)
-        # Using string '15Min' which is compatible
+        # Fetch 15m Bars
         bars_15m_raw = api.get_bars(symbol, '15Min', limit=50)
         bars_15m = pd.DataFrame([b._raw for b in bars_15m_raw])
         if not bars_15m.empty:
@@ -72,6 +71,39 @@ def get_market_data(api, symbol):
         logger.error(f"Error fetching data for {symbol}: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
+def check_earnings(symbol):
+    """
+    Checks if the company has earnings announced for today.
+    Uses Polygon Benzinga Earnings endpoint.
+    """
+    try:
+        today = datetime.now().date().isoformat()
+        # Note: This endpoint might require a paid Polygon tier.
+        earnings = poly_rest.list_benzinga_earnings(date=today, ticker=symbol)
+
+        # Check if iterator has any items
+        for e in earnings:
+            logger.warning(f"⚠️ EARNINGS ALERT: {symbol} has earnings today!")
+            return True # Has earnings
+
+        return False # No earnings found
+    except Exception as e:
+        logger.warning(f"Earnings check failed/skipped (API limit?): {e}")
+        return False
+
+def is_market_open_volatility():
+    """
+    Returns True if current NY time is between 09:30 and 10:00 (Kill Zone).
+    """
+    ny_tz = pytz.timezone('America/New_York')
+    now_ny = datetime.now(ny_tz).time()
+    start_kill = dtime(9, 30)
+    end_kill = dtime(10, 00)
+
+    if start_kill <= now_ny <= end_kill:
+        return True
+    return False
+
 class SecurityFilters:
     """
     Bouclier Anti-Pièges (Security Filters)
@@ -80,59 +112,31 @@ class SecurityFilters:
         self.api = api
 
     def is_safe_asset(self, symbol, df_daily):
-        """
-        Rejette les Penny Stocks et les Pump & Dump.
-        Condition: Prix > 5$ ET Volume quotidien > 1 000 000.
-        """
-        if df_daily.empty:
-            return False
-
+        if df_daily.empty: return False
         last_close = df_daily['close'].iloc[-1]
-        last_volume = df_daily['volume'].iloc[-1] # or average volume? Prompt says "Volume quotidien" -> usually avg daily volume is safer, but "Volume quotidien" implies current/last daily volume.
-        # Let's use average daily volume over last 20 days for safety, or just last day as requested?
-        # "Volume quotidien > 1 000 000" usually implies "Average Daily Volume".
         avg_volume = df_daily['volume'].tail(20).mean()
-
         if last_close > 5 and avg_volume > 1_000_000:
             return True
-
-        logger.warning(f"Filter Fail (Safe Asset): {symbol} (Price: {last_close}, Vol: {avg_volume})")
+        logger.warning(f"Filter Fail (Safe Asset): {symbol}")
         return False
 
     def confirm_volume_breakout(self, df_15m):
-        """
-        Évite les fausses cassures.
-        Condition: Le volume de la dernière bougie 15m doit être strictement supérieur à 1.5 fois la moyenne des volumes des 20 dernières bougies 15m.
-        """
-        if df_15m.empty or len(df_15m) < 21:
-            return False
-
+        if df_15m.empty or len(df_15m) < 21: return False
         last_volume = df_15m['volume'].iloc[-1]
-        # Average of previous 20 bars (excluding the last one which is current)
         avg_volume_20 = df_15m['volume'].iloc[-21:-1].mean()
-
         if last_volume > 1.5 * avg_volume_20:
             return True
-
-        logger.warning(f"Filter Fail (Volume Breakout): Last Vol {last_volume} <= 1.5 * Avg {avg_volume_20}")
+        logger.warning(f"Filter Fail (Volume Breakout): {last_volume} vs {avg_volume_20}")
         return False
 
     def is_global_trend_bullish(self, df_daily):
-        """
-        Ne trade pas contre la tendance.
-        Condition: Le prix actuel doit être au-dessus de la Moyenne Mobile 50 jours (SMA 50) sur le graphique Daily.
-        """
-        if df_daily.empty or len(df_daily) < 50:
-            return False
-
+        if df_daily.empty or len(df_daily) < 50: return False
         df_daily['SMA50'] = df_daily['close'].rolling(window=50).mean()
         last_close = df_daily['close'].iloc[-1]
         last_sma50 = df_daily['SMA50'].iloc[-1]
-
         if last_close > last_sma50:
             return True
-
-        logger.warning(f"Filter Fail (Trend): Price {last_close} <= SMA50 {last_sma50}")
+        logger.warning(f"Filter Fail (Trend): Price <= SMA50")
         return False
 
 # --- TRADING LOGIC (Buying & Selling) ---
@@ -141,46 +145,72 @@ security_filters = SecurityFilters(api)
 
 def scan_and_trade():
     """Scans watchlist and attempts to buy if filters pass."""
+
+    # 2. Filtre Temporel (Zone de la mort)
+    if is_market_open_volatility():
+        logger.warning("⛔ KILL ZONE (09:30-10:00 NY): No new positions.")
+        return
+
     logger.info("Scanning watchlist for opportunities...")
     global positions
-
-    # Refresh positions first
     update_positions()
 
+    # 1. Money Management (20% Limit)
+    try:
+        account = api.get_account()
+        cash_available = float(account.cash)
+        max_trade_val = cash_available * 0.20
+    except Exception as e:
+        logger.error(f"Failed to get account info: {e}")
+        return
+
     for symbol in watchlist:
-        # Don't buy if already held
-        if symbol in positions:
+        if symbol in positions: continue
+
+        # 5. Filtre d'Earnings
+        if check_earnings(symbol):
+            logger.warning(f"Skipping {symbol} due to Earnings today.")
             continue
 
-        logger.info(f"Analyzing {symbol}...")
         df_15m, df_daily = get_market_data(api, symbol)
+        if df_15m.empty or df_daily.empty: continue
 
-        if df_15m.empty or df_daily.empty:
+        # Security Filters
+        if not security_filters.is_safe_asset(symbol, df_daily): continue
+        if not security_filters.is_global_trend_bullish(df_daily): continue
+        if not security_filters.confirm_volume_breakout(df_15m): continue
+
+        # ALL FILTERS PASSED -> PREPARE ORDER
+        last_close_15m = float(df_15m['close'].iloc[-1])
+
+        # Calc Quantity based on Money Management
+        if last_close_15m <= 0: continue
+        qty = int(max_trade_val / last_close_15m)
+        if qty < 1:
+            logger.warning(f"Insufficient funds for {symbol} (Max: ${max_trade_val:.2f}, Price: ${last_close_15m})")
             continue
 
-        # Check Filters
-        if not security_filters.is_safe_asset(symbol, df_daily):
-            continue
+        logger.info(f"✅ {symbol} BUY SIGNAL. Qty: {qty} @ Limit ${last_close_15m}")
 
-        if not security_filters.is_global_trend_bullish(df_daily):
-            continue
-
-        if not security_filters.confirm_volume_breakout(df_15m):
-            continue
-
-        # If all pass, BUY!
-        logger.info(f"✅ {symbol} PASSED ALL FILTERS! Placing BUY Order.")
+        # 3. & 4. Limit Order with Bracket (TP/SL)
         try:
+            take_profit_price = round(last_close_15m * 1.05, 2)
+            stop_loss_price = round(last_close_15m * 0.97, 2)
+
             order = api.submit_order(
                 symbol=symbol,
-                qty=1, # Start small or calculate based on risk
+                qty=qty,
                 side='buy',
-                type='market',
-                time_in_force='day'
+                type='limit',
+                limit_price=last_close_15m,
+                time_in_force='day',
+                order_class='bracket',
+                take_profit={'limit_price': take_profit_price},
+                stop_loss={'stop_price': stop_loss_price}
             )
-            logger.info(f"Order Submitted: {order.id}")
+            logger.info(f"Bracket Order Submitted: {order.id} | TP: {take_profit_price} | SL: {stop_loss_price}")
         except Exception as e:
-            logger.error(f"Failed to submit buy order for {symbol}: {e}")
+            logger.error(f"Failed to submit bracket order for {symbol}: {e}")
 
 def update_positions():
     """Fetches open positions from Alpaca and updates the global list."""
@@ -190,23 +220,17 @@ def update_positions():
         new_positions = {}
         for p in pos_list:
             new_positions[p.symbol] = float(p.avg_entry_price)
-
         positions = new_positions
-        logger.info(f"Positions updated: {len(positions)} held. Symbols: {list(positions.keys())}")
-
         # Update Subscriptions
         update_subscriptions()
-
     except Exception as e:
         logger.error(f"Error updating positions: {e}")
 
 def update_subscriptions():
     """Subscribes to Polygon quotes for new positions."""
     global subscribed_symbols, ws_client
-
     current_symbols = set(positions.keys())
     new_symbols = current_symbols - subscribed_symbols
-
     if new_symbols:
         topics = [f"Q.{s}" for s in new_symbols]
         logger.info(f"Subscribing to: {topics}")
@@ -216,29 +240,6 @@ def update_subscriptions():
         except Exception as e:
             logger.error(f"Error subscribing: {e}")
 
-def sell_position(symbol, current_price):
-    """Executes a market sell order."""
-    try:
-        logger.info(f"Selling {symbol} at {current_price}...")
-
-        pos = api.get_position(symbol)
-        qty = pos.qty
-
-        order = api.submit_order(
-            symbol=symbol,
-            qty=qty,
-            side='sell',
-            type='market',
-            time_in_force='gtc'
-        )
-        logger.info(f"Order submitted: {order.id} for {qty} shares of {symbol}")
-
-        if symbol in positions:
-            del positions[symbol]
-
-    except Exception as e:
-        logger.error(f"Failed to sell {symbol}: {e}")
-
 def handle_msg(msgs):
     """Callback for Polygon WebSocket messages."""
     for m in msgs:
@@ -246,25 +247,23 @@ def handle_msg(msgs):
             symbol = m.symbol
             if symbol in positions:
                 entry_price = positions[symbol]
-                current_price = getattr(m, 'bp', 0) or getattr(m, 'ask_price', 0)
+                current_price = getattr(m, 'bp', 0) or getattr(m, 'ask_price', 0) or getattr(m, 'bid_price', 0)
 
                 # Check 1.15.4 client model
                 if not current_price:
-                    if hasattr(m, 'bid_price'):
-                        current_price = m.bid_price
-                    elif hasattr(m, 'bp'):
-                         current_price = m.bp
+                    if hasattr(m, 'bid_price'): current_price = m.bid_price
+                    elif hasattr(m, 'bp'): current_price = m.bp
 
                 if current_price and current_price > 0:
                     profit_pct = (current_price - entry_price) / entry_price
 
                     # --- INTENSIVE SURVEILLANCE: AAPL ---
                     if symbol == 'AAPL' and abs(profit_pct) >= 0.01:
-                         logger.warning(f"⚠️ INTENSIVE WATCH: AAPL variation > 1%! Current: {profit_pct*100:.2f}% (Price: {current_price})")
+                         logger.warning(f"⚠️ INTENSIVE WATCH: AAPL variation > 1%! Current: {profit_pct*100:.2f}%")
 
+                    # Note: TP is handled by Bracket Order. We just log here or trigger backup sell.
                     if profit_pct >= 0.05:
-                        logger.warning(f"Taking Profit! {symbol} is up {profit_pct*100:.2f}% (Price: {current_price}, Entry: {entry_price})")
-                        sell_position(symbol, current_price)
+                        logger.warning(f"Target Hit (+5%) for {symbol}. Bracket Order should trigger.")
 
 # --- BANKING LOGIC ---
 
@@ -273,86 +272,41 @@ def process_weekly_transfer():
     logger.info("Running Weekly Transfer Task...")
     try:
         history = api.get_portfolio_history(period='1M', timeframe='1D')
-
-        if len(history.equity) > 7:
-            start_equity = history.equity[-7]
-        else:
-            start_equity = history.equity[0] if history.equity else 0
-
-        account_info = api.get_account()
-        current_equity = float(account_info.equity)
-
+        start_equity = history.equity[-7] if len(history.equity) > 7 else (history.equity[0] if history.equity else 0)
+        current_equity = float(api.get_account().equity)
         profit = current_equity - start_equity
-
-        logger.info(f"Weekly Analysis: Start Equity ~{start_equity}, Current {current_equity}, Profit: {profit}")
 
         if profit > 0:
             logger.info(f"Profit detected: ${profit:.2f}. Initiating transfer...")
-
             try:
-                transfer_data = {
-                    'transfer_type': 'ach',
-                    'amount': str(round(profit, 2)),
-                    'direction': 'outgoing'
-                }
-
-                try:
-                    rels = api.get('/ach_relationships')
-                    if rels:
-                        transfer_data['relationship_id'] = rels[0]['id']
-                        logger.info(f"Using Bank Relationship ID: {transfer_data['relationship_id']}")
-                except Exception as e:
-                    logger.warning(f"Could not fetch ACH relationships: {e}")
-
-                response = api.post('/transfers', data=transfer_data)
-                logger.info(f"SUCCESS: Transfer Response: {response}")
-
+                transfer_data = {'transfer_type': 'ach', 'amount': str(round(profit, 2)), 'direction': 'outgoing'}
+                rels = api.get('/ach_relationships')
+                if rels: transfer_data['relationship_id'] = rels[0]['id']
+                api.post('/transfers', data=transfer_data)
+                logger.info("SUCCESS: Transfer Initiated.")
             except Exception as e:
-                logger.error(f"Transfer failed (Expected in Paper Trading): {e}")
-                logger.info(f"[SIMULATION] Would have transferred ${profit:.2f} to linked Revolut account.")
-
-        else:
-            logger.info("No profit this week (or loss). No transfer initiated.")
-
+                logger.error(f"Transfer failed: {e}")
     except Exception as e:
         logger.error(f"Error in weekly transfer: {e}")
 
 # --- MAIN ENGINE ---
 
 def run_scheduler():
-    """Runs the schedule loop."""
     logger.info("Scheduler started.")
-
-    # Schedule Weekly Transfer (Friday 22:00)
     schedule.every().friday.at("22:00").do(process_weekly_transfer)
-
-    # Schedule Position Updates (Every 1 minute)
     schedule.every(1).minutes.do(update_positions)
-
-    # Schedule Market Scanner (Every 15 minutes to match bar time?)
-    # Or more frequently? The filter relies on 15m bars.
     schedule.every(15).minutes.do(scan_and_trade)
-
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 def main():
     logger.info("Starting Alpha-5 Production Agent...")
-
-    # Initial Position Load
     update_positions()
 
-    # Initial Scan (Optional)
-    # scan_and_trade()
+    threading.Thread(target=run_scheduler, daemon=True).start()
 
-    # Start Scheduler Thread
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
-
-    # Start Polygon WebSocket
     global ws_client
-    # Using polygon-api-client structure
     ws_client = WebSocketClient(api_key=POLYGON_API_KEY, verbose=True)
 
     current_symbols = list(positions.keys())
@@ -360,9 +314,6 @@ def main():
         topics = [f"Q.{s}" for s in current_symbols]
         ws_client.subscribe(topics)
         subscribed_symbols.update(current_symbols)
-        logger.info(f"Subscribed to: {topics}")
-    else:
-        logger.info("No positions to monitor initially.")
 
     logger.info("Connecting to Polygon Stream...")
     try:
