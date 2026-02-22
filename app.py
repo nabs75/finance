@@ -87,6 +87,15 @@ try:
 
     # --- JAUGE DE PERFORMANCE ---
     st.subheader("🎯 Proximité de l'objectif (+5%)")
+
+    # --- TEST TEMPORAIRE AAPL (4.6%) ---
+    class MockPosition:
+        def __init__(self, symbol, plpc):
+            self.symbol = symbol
+            self.unrealized_intraday_plpc = plpc
+    # On ajoute la position fictive pour vérifier l'affichage
+    positions.append(MockPosition("AAPL (TEST)", 0.046))
+
     if positions:
         for p in positions:
             profit = float(p.unrealized_intraday_plpc) * 100
