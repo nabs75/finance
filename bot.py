@@ -3,6 +3,8 @@ import time
 import logging
 import threading
 import schedule
+import pandas as pd
+import numpy as np
 from dotenv import load_dotenv
 import alpaca_trade_api as tradeapi
 from polygon import WebSocketClient
@@ -34,8 +36,151 @@ except Exception as e:
 # Global State
 positions = {} # {symbol: avg_entry_price}
 subscribed_symbols = set()
+watchlist = ["AAPL", "TSLA", "AMD", "NVDA", "META"] # Example Watchlist
 
-# --- TRADING LOGIC ---
+# --- MARKET DATA & SECURITY FILTERS ---
+
+def get_market_data(api, symbol):
+    """
+    Fetches market data (15m and Daily bars) for a given symbol.
+    Returns two DataFrames: df_15m, df_daily.
+    """
+    try:
+        # Fetch Daily Bars (need at least 50 for SMA50)
+        # Using string '1Day' which is compatible
+        daily_bars_raw = api.get_bars(symbol, '1Day', limit=100)
+        daily_bars = pd.DataFrame([b._raw for b in daily_bars_raw])
+        if not daily_bars.empty:
+             daily_bars['timestamp'] = pd.to_datetime(daily_bars['t'])
+             daily_bars.set_index('timestamp', inplace=True)
+             # Rename columns to match filter expectations (lowercase) if needed
+             # Alpaca v2 raw keys are 'c', 'v', 'o', 'h', 'l'.
+             daily_bars.rename(columns={'c': 'close', 'v': 'volume', 'o': 'open', 'h': 'high', 'l': 'low'}, inplace=True)
+
+        # Fetch 15m Bars (need at least 21 for volume avg)
+        # Using string '15Min' which is compatible
+        bars_15m_raw = api.get_bars(symbol, '15Min', limit=50)
+        bars_15m = pd.DataFrame([b._raw for b in bars_15m_raw])
+        if not bars_15m.empty:
+             bars_15m['timestamp'] = pd.to_datetime(bars_15m['t'])
+             bars_15m.set_index('timestamp', inplace=True)
+             bars_15m.rename(columns={'c': 'close', 'v': 'volume', 'o': 'open', 'h': 'high', 'l': 'low'}, inplace=True)
+
+        return bars_15m, daily_bars
+
+    except Exception as e:
+        logger.error(f"Error fetching data for {symbol}: {e}")
+        return pd.DataFrame(), pd.DataFrame()
+
+class SecurityFilters:
+    """
+    Bouclier Anti-Pièges (Security Filters)
+    """
+    def __init__(self, api):
+        self.api = api
+
+    def is_safe_asset(self, symbol, df_daily):
+        """
+        Rejette les Penny Stocks et les Pump & Dump.
+        Condition: Prix > 5$ ET Volume quotidien > 1 000 000.
+        """
+        if df_daily.empty:
+            return False
+
+        last_close = df_daily['close'].iloc[-1]
+        last_volume = df_daily['volume'].iloc[-1] # or average volume? Prompt says "Volume quotidien" -> usually avg daily volume is safer, but "Volume quotidien" implies current/last daily volume.
+        # Let's use average daily volume over last 20 days for safety, or just last day as requested?
+        # "Volume quotidien > 1 000 000" usually implies "Average Daily Volume".
+        avg_volume = df_daily['volume'].tail(20).mean()
+
+        if last_close > 5 and avg_volume > 1_000_000:
+            return True
+
+        logger.warning(f"Filter Fail (Safe Asset): {symbol} (Price: {last_close}, Vol: {avg_volume})")
+        return False
+
+    def confirm_volume_breakout(self, df_15m):
+        """
+        Évite les fausses cassures.
+        Condition: Le volume de la dernière bougie 15m doit être strictement supérieur à 1.5 fois la moyenne des volumes des 20 dernières bougies 15m.
+        """
+        if df_15m.empty or len(df_15m) < 21:
+            return False
+
+        last_volume = df_15m['volume'].iloc[-1]
+        # Average of previous 20 bars (excluding the last one which is current)
+        avg_volume_20 = df_15m['volume'].iloc[-21:-1].mean()
+
+        if last_volume > 1.5 * avg_volume_20:
+            return True
+
+        logger.warning(f"Filter Fail (Volume Breakout): Last Vol {last_volume} <= 1.5 * Avg {avg_volume_20}")
+        return False
+
+    def is_global_trend_bullish(self, df_daily):
+        """
+        Ne trade pas contre la tendance.
+        Condition: Le prix actuel doit être au-dessus de la Moyenne Mobile 50 jours (SMA 50) sur le graphique Daily.
+        """
+        if df_daily.empty or len(df_daily) < 50:
+            return False
+
+        df_daily['SMA50'] = df_daily['close'].rolling(window=50).mean()
+        last_close = df_daily['close'].iloc[-1]
+        last_sma50 = df_daily['SMA50'].iloc[-1]
+
+        if last_close > last_sma50:
+            return True
+
+        logger.warning(f"Filter Fail (Trend): Price {last_close} <= SMA50 {last_sma50}")
+        return False
+
+# --- TRADING LOGIC (Buying & Selling) ---
+
+security_filters = SecurityFilters(api)
+
+def scan_and_trade():
+    """Scans watchlist and attempts to buy if filters pass."""
+    logger.info("Scanning watchlist for opportunities...")
+    global positions
+
+    # Refresh positions first
+    update_positions()
+
+    for symbol in watchlist:
+        # Don't buy if already held
+        if symbol in positions:
+            continue
+
+        logger.info(f"Analyzing {symbol}...")
+        df_15m, df_daily = get_market_data(api, symbol)
+
+        if df_15m.empty or df_daily.empty:
+            continue
+
+        # Check Filters
+        if not security_filters.is_safe_asset(symbol, df_daily):
+            continue
+
+        if not security_filters.is_global_trend_bullish(df_daily):
+            continue
+
+        if not security_filters.confirm_volume_breakout(df_15m):
+            continue
+
+        # If all pass, BUY!
+        logger.info(f"✅ {symbol} PASSED ALL FILTERS! Placing BUY Order.")
+        try:
+            order = api.submit_order(
+                symbol=symbol,
+                qty=1, # Start small or calculate based on risk
+                side='buy',
+                type='market',
+                time_in_force='day'
+            )
+            logger.info(f"Order Submitted: {order.id}")
+        except Exception as e:
+            logger.error(f"Failed to submit buy order for {symbol}: {e}")
 
 def update_positions():
     """Fetches open positions from Alpaca and updates the global list."""
@@ -71,19 +216,11 @@ def update_subscriptions():
         except Exception as e:
             logger.error(f"Error subscribing: {e}")
 
-    # Optional: Unsubscribe from closed positions?
-    # removed_symbols = subscribed_symbols - current_symbols
-    # if removed_symbols:
-    #     topics = [f"Q.{s}" for s in removed_symbols]
-    #     ws_client.unsubscribe(topics)
-    #     subscribed_symbols.difference_update(removed_symbols)
-
 def sell_position(symbol, current_price):
     """Executes a market sell order."""
     try:
         logger.info(f"Selling {symbol} at {current_price}...")
 
-        # Verify we still hold it
         pos = api.get_position(symbol)
         qty = pos.qty
 
@@ -96,7 +233,6 @@ def sell_position(symbol, current_price):
         )
         logger.info(f"Order submitted: {order.id} for {qty} shares of {symbol}")
 
-        # Optimistic update
         if symbol in positions:
             del positions[symbol]
 
@@ -106,24 +242,14 @@ def sell_position(symbol, current_price):
 def handle_msg(msgs):
     """Callback for Polygon WebSocket messages."""
     for m in msgs:
-        # We expect Quote objects
-        # Check event type 'Q'
         if hasattr(m, 'event_type') and m.event_type == 'Q':
             symbol = m.symbol
             if symbol in positions:
                 entry_price = positions[symbol]
-                # Use bid price if available (best price to sell at)
-                # Fallback to ask or general price?
-                # Polygon Quote usually has bid_price (bp) and ask_price (ap)
-                current_price = getattr(m, 'bp', 0) or getattr(m, 'ask_price', 0) # field names vary by client version
+                current_price = getattr(m, 'bp', 0) or getattr(m, 'ask_price', 0)
 
                 # Check 1.15.4 client model
-                # Usually: ask_price, ask_size, bid_price, bid_size
                 if not current_price:
-                    # Try accessing as dict if it's not an object
-                    # But typed client returns objects.
-                    # Let's inspect available attrs if debugging, but assume 'bid_price' or 'bp'.
-                    # Common attrs: ask_exchange, ask_price, ask_size, bid_exchange, bid_price, bid_size...
                     if hasattr(m, 'bid_price'):
                         current_price = m.bid_price
                     elif hasattr(m, 'bp'):
@@ -146,8 +272,6 @@ def process_weekly_transfer():
     """Calculates weekly profit and initiates transfer."""
     logger.info("Running Weekly Transfer Task...")
     try:
-        # 1. Calculate Profit
-        # Get portfolio history for last 7 days (1W)
         history = api.get_portfolio_history(period='1M', timeframe='1D')
 
         if len(history.equity) > 7:
@@ -165,9 +289,7 @@ def process_weekly_transfer():
         if profit > 0:
             logger.info(f"Profit detected: ${profit:.2f}. Initiating transfer...")
 
-            # 2. Transfer logic
             try:
-                # Attempt to get ACH relationships first
                 transfer_data = {
                     'transfer_type': 'ach',
                     'amount': str(round(profit, 2)),
@@ -177,22 +299,16 @@ def process_weekly_transfer():
                 try:
                     rels = api.get('/ach_relationships')
                     if rels:
-                         # Use the first relationship found
                         transfer_data['relationship_id'] = rels[0]['id']
                         logger.info(f"Using Bank Relationship ID: {transfer_data['relationship_id']}")
                 except Exception as e:
                     logger.warning(f"Could not fetch ACH relationships: {e}")
 
-                # Execute Transfer
-                # Note: api.post is available on the REST client
-                # Using /v1/transfers or /transfers (client usually handles base path)
-                # If using paper trading, this will likely fail or be simulated by API
                 response = api.post('/transfers', data=transfer_data)
                 logger.info(f"SUCCESS: Transfer Response: {response}")
 
             except Exception as e:
                 logger.error(f"Transfer failed (Expected in Paper Trading): {e}")
-                # Log success for simulation purposes if it was just a permission/paper error
                 logger.info(f"[SIMULATION] Would have transferred ${profit:.2f} to linked Revolut account.")
 
         else:
@@ -208,11 +324,14 @@ def run_scheduler():
     logger.info("Scheduler started.")
 
     # Schedule Weekly Transfer (Friday 22:00)
-    # Note: 'schedule' uses system time. Ensure system is set to correct timezone or adjust.
     schedule.every().friday.at("22:00").do(process_weekly_transfer)
 
     # Schedule Position Updates (Every 1 minute)
     schedule.every(1).minutes.do(update_positions)
+
+    # Schedule Market Scanner (Every 15 minutes to match bar time?)
+    # Or more frequently? The filter relies on 15m bars.
+    schedule.every(15).minutes.do(scan_and_trade)
 
     while True:
         schedule.run_pending()
@@ -224,17 +343,18 @@ def main():
     # Initial Position Load
     update_positions()
 
+    # Initial Scan (Optional)
+    # scan_and_trade()
+
     # Start Scheduler Thread
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
 
     # Start Polygon WebSocket
-    # This blocks, so it runs in main thread
     global ws_client
-    # Note: verbose=True helps debug connection issues
-    ws_client = WebSocketClient(api_key=POLYGON_API_KEY, feed='poly', market='stocks', verbose=True)
+    # Using polygon-api-client structure
+    ws_client = WebSocketClient(api_key=POLYGON_API_KEY, verbose=True)
 
-    # Initial subscription
     current_symbols = list(positions.keys())
     if current_symbols:
         topics = [f"Q.{s}" for s in current_symbols]
