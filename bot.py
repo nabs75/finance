@@ -183,26 +183,29 @@ def scan_and_trade():
         # ALL FILTERS PASSED -> PREPARE ORDER
         last_close_15m = float(df_15m['close'].iloc[-1])
 
+        # Price Buffer (0.05%) for execution optimization
+        entry_price_limit = round(last_close_15m * 1.0005, 2)
+
         # Calc Quantity based on Money Management
-        if last_close_15m <= 0: continue
-        qty = int(max_trade_val / last_close_15m)
+        if entry_price_limit <= 0: continue
+        qty = int(max_trade_val / entry_price_limit)
         if qty < 1:
-            logger.warning(f"Insufficient funds for {symbol} (Max: ${max_trade_val:.2f}, Price: ${last_close_15m})")
+            logger.warning(f"Insufficient funds for {symbol} (Max: ${max_trade_val:.2f}, Price: ${entry_price_limit})")
             continue
 
-        logger.info(f"✅ {symbol} BUY SIGNAL. Qty: {qty} @ Limit ${last_close_15m}")
+        logger.info(f"✅ {symbol} BUY SIGNAL. Qty: {qty} @ Limit ${entry_price_limit} (w/ Buffer)")
 
         # 3. & 4. Limit Order with Bracket (TP/SL)
         try:
-            take_profit_price = round(last_close_15m * 1.05, 2)
-            stop_loss_price = round(last_close_15m * 0.97, 2)
+            take_profit_price = round(entry_price_limit * 1.05, 2)
+            stop_loss_price = round(entry_price_limit * 0.97, 2)
 
             order = api.submit_order(
                 symbol=symbol,
                 qty=qty,
                 side='buy',
                 type='limit',
-                limit_price=last_close_15m,
+                limit_price=entry_price_limit,
                 time_in_force='day',
                 order_class='bracket',
                 take_profit={'limit_price': take_profit_price},
