@@ -29,6 +29,39 @@ POLYGON_API_KEY=<YOUR_POLYGON_API_KEY>
    nohup ./start_bot.sh > bot.log 2>&1 &
    ```
 
+# Systemd Service Installation (Auto-Start on Boot)
+
+To ensure the bot starts automatically when the server boots and restarts on crash:
+
+1. Copy the service file:
+   ```bash
+   sudo cp alpha5.service /etc/systemd/system/
+   ```
+
+2. Edit the service file to match your user and path:
+   ```bash
+   sudo nano /etc/systemd/system/alpha5.service
+   ```
+   *Change `User=root` to your username (e.g., `ubuntu` or `pi`).*
+   *Change `/path/to/alpha-5` to the directory where you cloned this repo.*
+
+3. Enable and start the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable alpha5.service
+   sudo systemctl start alpha5.service
+   ```
+
+4. Check the status:
+   ```bash
+   sudo systemctl status alpha5.service
+   ```
+
+5. View logs:
+   ```bash
+   journalctl -u alpha5.service -f
+   ```
+
 # Environment Configuration
 
 This bot is designed to run in a secure environment.

@@ -1,0 +1,22 @@
+[Unit]
+Description=Alpha-5 Trading Bot Service
+After=network.target
+
+[Service]
+# User running the script (change to your username)
+User=root
+# Working Directory where the repo is cloned (change to your path)
+WorkingDirectory=/path/to/alpha-5
+# Command to run the bot
+ExecStart=/bin/bash /path/to/alpha-5/start_bot.sh
+# Restart policy: always restart on failure or success (unless manually stopped)
+Restart=always
+# Delay between restarts
+RestartSec=5
+# Output logs to syslog (view with journalctl -u alpha5)
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=alpha5-bot
+
+[Install]
+WantedBy=multi-user.target
