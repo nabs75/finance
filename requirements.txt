@@ -3,3 +3,6 @@ streamlit
 pandas
 plotly
 python-dotenv
+schedule
+polygon-api-client
+websockets
