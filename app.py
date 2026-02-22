@@ -58,10 +58,10 @@ def get_data():
             "Profit/Perte %": round(float(p.unrealized_intraday_plpc) * 100, 2),
             "Valeur": f"{float(p.market_value):.2f} $"
         })
-    return account, pd.DataFrame(pos_list)
+    return account, pd.DataFrame(pos_list), positions
 
 try:
-    account, df_positions = get_data()
+    account, df_positions, positions = get_data()
 
     # --- BARRE DE MÉTRIQUES ---
     col1, col2, col3 = st.columns(3)
@@ -87,11 +87,13 @@ try:
 
     # --- JAUGE DE PERFORMANCE ---
     st.subheader("🎯 Proximité de l'objectif (+5%)")
-    if not df_positions.empty:
-        for index, row in df_positions.iterrows():
-            progress = min(max(row['Profit/Perte %'] / 5.0, 0.0), 1.0)
-            st.write(f"**{row['Action']}** ({row['Profit/Perte %']}%)")
-            st.progress(progress)
+    if positions:
+        for p in positions:
+            profit = float(p.unrealized_intraday_plpc) * 100
+            st.write(f"**{p.symbol}** : {profit:.2f}% / 5.00%")
+            st.progress(min(max(profit / 5.0, 0.0), 1.0))
+            if profit >= 4.5:
+                st.warning(f"🔥 {p.symbol} approche de l'objectif de vente !")
 
 except Exception as e:
     st.error(f"Erreur de connexion aux APIs : {e}")
