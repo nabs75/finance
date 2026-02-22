@@ -25,7 +25,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🚀 Alpha-5 : Monitoring en Temps Réel")
+st.title("TEST SYNCHRO - IL EST 15H10")
 
 # --- RÉCUPÉRATION DES DONNÉES ---
 def get_data():
@@ -86,4 +86,5 @@ st.sidebar.markdown("---")
 st.sidebar.write("🏦 **Compte lié :** Revolut Personnel")
 st.sidebar.write("⏲️ **Prochain virement :** Vendredi 22h")
 if st.sidebar.button("Rafraîchir les données"):
+
     st.rerun()
