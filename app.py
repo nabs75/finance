@@ -44,21 +44,3 @@ try:
 
     # --- BARRE DE MÉTRIQUES ---
     col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Solde Cash", f"{float(account.cash):.2f} $")
-    col2.metric("📊 Valeur Portefeuille", f"{float(account.portfolio_value):.2f} $")
-    profit_today = float(account.equity) - float(account.last_equity)
-    col3.metric("📅 Profit Jour", f"{profit_today:.2f} $")
-
-    st.divider()
-
-    # --- TABLEAU DES OPÉRATIONS RÉELLES ---
-    st.subheader("🔎 Opérations en cours")
-    positions = api.list_positions()
-
-    if positions:
-        pos_list = []
-        for p in positions:
-            pos_list.append({
-                "Action": p.symbol,
-                "Quantité": p.qty,
-                "Prix Achat": f"{float(p.avg_entry_price):.2
