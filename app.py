@@ -5,17 +5,8 @@ from alpaca_trade_api.rest import REST
 import os
 from dotenv import load_dotenv
 
-# Chargement des clés API depuis le fichier .env (géré par Jules)
-load_dotenv()
-
-# Configuration Alpaca
-api = REST(
-    os.getenv('ALPACA_API_KEY'),
-    os.getenv('ALPACA_SECRET_KEY'),
-    os.getenv('ALPACA_BASE_URL')
-)
-
 # --- CONFIGURATION INTERFACE ---
+# Doit être la première commande Streamlit
 st.set_page_config(page_title="Alpha-5 Trading Dashboard", layout="wide", page_icon="📈")
 
 st.markdown("""
@@ -27,11 +18,35 @@ st.markdown("""
 
 st.title("🚀 Alpha-5 : Monitoring en Temps Réel")
 
+# Chargement des clés API
+# Priorité aux Secrets Streamlit (Cloud), sinon .env (Local)
+load_dotenv()
+
+try:
+    ALPACA_API_KEY = st.secrets["ALPACA_API_KEY"]
+    ALPACA_SECRET_KEY = st.secrets["ALPACA_SECRET_KEY"]
+    ALPACA_BASE_URL = st.secrets["ALPACA_BASE_URL"]
+except Exception:
+    ALPACA_API_KEY = os.getenv('ALPACA_API_KEY')
+    ALPACA_SECRET_KEY = os.getenv('ALPACA_SECRET_KEY')
+    ALPACA_BASE_URL = os.getenv('ALPACA_BASE_URL')
+
+if not ALPACA_API_KEY:
+    st.error("⚠️ Clés API manquantes ! Configurez les secrets sur Streamlit Cloud ou le fichier .env en local.")
+    st.stop()
+
+# Configuration Alpaca
+try:
+    api = REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
+except Exception as e:
+    st.error(f"Erreur d'initialisation Alpaca : {e}")
+    st.stop()
+
 # --- RÉCUPÉRATION DES DONNÉES ---
 def get_data():
     account = api.get_account()
     positions = api.list_positions()
-    
+
     # Transformation des positions en Tableau
     pos_list = []
     for p in positions:

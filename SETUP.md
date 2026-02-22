@@ -3,13 +3,13 @@
 To run the Alpha-5 bot, you must create a `.env` file in the root directory with your API keys.
 
 1. Create a file named `.env`.
-2. Add the following content:
+2. Add the following content (replace the placeholders with your actual keys):
 
 ```env
-ALPACA_API_KEY=PK7PTVUJEBA5AWR65XTNOITDZL
-ALPACA_SECRET_KEY=G6MaT3u16TPK258xx22PJCt3yvMRtP5V5CN63NDsapAY
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-POLYGON_API_KEY=UDcT_hdW0JPrUz9Rx0N2TktVc5JD1KVO
+ALPACA_API_KEY=<YOUR_ALPACA_API_KEY>
+ALPACA_SECRET_KEY=<YOUR_ALPACA_SECRET_KEY>
+ALPACA_BASE_URL=<YOUR_ALPACA_BASE_URL> # e.g. https://paper-api.alpaca.markets
+POLYGON_API_KEY=<YOUR_POLYGON_API_KEY>
 ```
 
 3. Install dependencies:
@@ -21,3 +21,15 @@ POLYGON_API_KEY=UDcT_hdW0JPrUz9Rx0N2TktVc5JD1KVO
    ```bash
    ./start_bot.sh
    ```
+
+# Environment Configuration
+
+This bot is designed to run in a secure environment.
+
+**Secrets:**
+- `ALPACA_API_KEY`: Your Alpaca API Key ID.
+- `ALPACA_SECRET_KEY`: Your Alpaca Secret Key.
+- `ALPACA_BASE_URL`: The API base URL (Paper or Live).
+- `POLYGON_API_KEY`: Your Polygon.io API Key (usually included with Alpaca).
+
+**Note:** Never commit your `.env` file to version control.

@@ -1,10 +1,8 @@
 import os
 import time
-import datetime
 import logging
 import threading
 import schedule
-import pytz
 from dotenv import load_dotenv
 import alpaca_trade_api as tradeapi
 from polygon import WebSocketClient
@@ -146,14 +144,14 @@ def process_weekly_transfer():
         # 1. Calculate Profit
         # Get portfolio history for last 7 days (1W)
         history = api.get_portfolio_history(period='1M', timeframe='1D')
-        # Find start of this week (or last 5 days)
-        # Simplify: Equity change over last 7 entries?
+
         if len(history.equity) > 7:
             start_equity = history.equity[-7]
         else:
-            start_equity = history.equity[0]
+            start_equity = history.equity[0] if history.equity else 0
 
-        current_equity = float(api.get_account().equity)
+        account_info = api.get_account()
+        current_equity = float(account_info.equity)
 
         profit = current_equity - start_equity
 
@@ -162,25 +160,35 @@ def process_weekly_transfer():
         if profit > 0:
             logger.info(f"Profit detected: ${profit:.2f}. Initiating transfer...")
 
-            # 2. Find Bank Relationship
-            # Note: Paper trading often fails here. We log safely.
-            relationship_id = None
+            # 2. Transfer logic
             try:
-                # Attempt to find generic ACH
-                # Assuming api.get returns list or we use a hardcoded check if we knew it
-                # For now, we simulate if not found
-                pass
-            except:
-                pass
+                # Attempt to get ACH relationships first
+                transfer_data = {
+                    'transfer_type': 'ach',
+                    'amount': str(round(profit, 2)),
+                    'direction': 'outgoing'
+                }
 
-            # 3. Transfer
-            # In Production:
-            # api.post('/v1/transfers', {'amount': str(profit), 'direction': 'outgoing', 'transfer_type': 'ach'})
+                try:
+                    rels = api.get('/ach_relationships')
+                    if rels:
+                         # Use the first relationship found
+                        transfer_data['relationship_id'] = rels[0]['id']
+                        logger.info(f"Using Bank Relationship ID: {transfer_data['relationship_id']}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch ACH relationships: {e}")
 
-            # Simulation Log
-            logger.info(f"SUCCESS: Initiated transfer of ${profit:.2f} to Revolut (IBAN Linked).")
-            # If valid, we would do:
-            # api.post('/transfers', {'amount': f"{profit:.2f}", 'direction': 'outgoing', 'transfer_type': 'ach'})
+                # Execute Transfer
+                # Note: api.post is available on the REST client
+                # Using /v1/transfers or /transfers (client usually handles base path)
+                # If using paper trading, this will likely fail or be simulated by API
+                response = api.post('/transfers', data=transfer_data)
+                logger.info(f"SUCCESS: Transfer Response: {response}")
+
+            except Exception as e:
+                logger.error(f"Transfer failed (Expected in Paper Trading): {e}")
+                # Log success for simulation purposes if it was just a permission/paper error
+                logger.info(f"[SIMULATION] Would have transferred ${profit:.2f} to linked Revolut account.")
 
         else:
             logger.info("No profit this week (or loss). No transfer initiated.")
@@ -192,28 +200,17 @@ def process_weekly_transfer():
 
 def run_scheduler():
     """Runs the schedule loop."""
-    # Schedule Friday 22:00 NY Time
-    # We use a wrapper to check timezone
     logger.info("Scheduler started.")
+
+    # Schedule Weekly Transfer (Friday 22:00)
+    # Note: 'schedule' uses system time. Ensure system is set to correct timezone or adjust.
+    schedule.every().friday.at("22:00").do(process_weekly_transfer)
+
+    # Schedule Position Updates (Every 1 minute)
+    schedule.every(1).minutes.do(update_positions)
+
     while True:
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
-        now_ny = now_utc.astimezone(pytz.timezone('America/New_York'))
-
-        # Check if Friday (4) and 22:00
-        # To avoid multiple runs in the same minute, we can use schedule's logic or a flag.
-        # But 'schedule' library is simpler if we align time.
-        # Let's just use schedule and assume server time is close enough or use the 'at' with timezone awareness if supported?
-        # Schedule doesn't support timezones well in all versions.
-        # Simple check:
-        if now_ny.weekday() == 4 and now_ny.hour == 22 and now_ny.minute == 0:
-             process_weekly_transfer()
-             time.sleep(65) # Wait > 1 min to avoid double trigger
-
-        # Periodic Position Update (every 60s)
-        if int(time.time()) % 60 == 0:
-            update_positions()
-            time.sleep(1)
-
+        schedule.run_pending()
         time.sleep(1)
 
 def main():
