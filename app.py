@@ -66,4 +66,25 @@ try:
         st.dataframe(df_positions.style.map(color_profit, subset=['Profit/Perte %']), use_container_width=True)
         
         # --- JAUGES DE PERFORMANCE RÉELLES ---
-        st.
+        st.subheader("🎯 Suivi des objectifs (+5%)")
+        for index, row in df_positions.iterrows():
+            progress = min(max(row['Profit/Perte %'] / 5.0, 0.0), 1.0)
+            st.write(f"**{row['Action']}** ({row['Profit/Perte %']}%)")
+            st.progress(progress)
+            
+            # L'alerte ne se déclenchera que pour tes vraies actions !
+            if row['Profit/Perte %'] >= 4.5:
+                st.warning(f"🔥 {row['Action']} approche de l'objectif de vente !")
+
+    else:
+        st.info("ℹ️ Aucune position ouverte pour le moment. Le robot est en attente de signaux.")
+
+except Exception as e:
+    st.error(f"❌ Erreur de connexion aux APIs : {e}")
+
+# --- FOOTER ---
+st.sidebar.markdown("---")
+st.sidebar.write("🏦 **Compte lié :** Revolut Personnel")
+st.sidebar.write("⏲️ **Prochain virement :** Vendredi 22h")
+if st.sidebar.button("Rafraîchir les données"):
+    st.rerun()
