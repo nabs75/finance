@@ -1,8 +1,7 @@
-alpaca-trade-api
-streamlit
 pandas
-plotly
+numpy
+alpaca-trade-api
+pytz
 python-dotenv
 schedule
 polygon-api-client
-websockets

@@ -2,5 +2,8 @@
 2026-02-23 13:55:44,531 - INFO - Starting Jules V7.2.5 (RSI+EMA TSLA)...
 2026-02-23 13:55:44,641 - INFO - ⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: 08:55:44
 2026-02-23 13:55:44,642 - INFO - Scheduler started.
- Current: 08:55:44
-Scheduler started.
+2026-02-23 14:00:44,856 - INFO - ⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: 09:00:44
+2026-02-23 14:15:36,259 - ERROR - Error updating positions: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2026-02-23 14:15:36,278 - INFO - ⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: 09:15:36
+ut response'))
+⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: 09:15:36

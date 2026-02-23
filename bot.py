@@ -11,12 +11,8 @@ from dotenv import load_dotenv
 import alpaca_trade_api as tradeapi
 from polygon import WebSocketClient
 
-# --- CONFIGURATION (V7.2.5) ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='bot.log', filemode='w')
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-logging.getLogger().addHandler(console_handler)
-
+# --- CONFIGURATION (V7.2.5 Standard) ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("Jules-V7.2.5")
 
 load_dotenv()
@@ -30,7 +26,7 @@ if not all([ALPACA_API_KEY, ALPACA_SECRET_KEY, POLYGON_API_KEY]):
     logger.error("Missing API Keys in .env")
     exit(1)
 
-# Initialize APIs
+# Initialize Alpaca API
 try:
     api = tradeapi.REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
     account = api.get_account()
@@ -42,8 +38,8 @@ except Exception as e:
 # Global State
 positions = {} # {symbol: avg_entry_price}
 target_asset = "TSLA"
-EMA_PERIOD = 20 # Can be adjusted
-RSI_PERIOD = 14
+EMA_PERIOD = 9  # V7.2.5 Requirement
+RSI_PERIOD = 14 # V7.2.5 Requirement
 
 # --- MARKET DATA & INDICATORS ---
 
@@ -52,8 +48,8 @@ def get_market_data(api, symbol):
     Fetches market data (15m bars) for indicator calculation.
     """
     try:
-        # Fetch 15m Bars (need enough for RSI 14 + EMA 20)
-        # Using string '15Min' which is compatible
+        # Fetch 15m Bars (need enough for RSI 14 + EMA 9)
+        # Using string '15Min' which is compatible with Alpaca SDK
         bars_15m_raw = api.get_bars(symbol, '15Min', limit=100)
         bars_15m = pd.DataFrame([b._raw for b in bars_15m_raw])
         if not bars_15m.empty:
@@ -69,35 +65,26 @@ def get_market_data(api, symbol):
         return pd.DataFrame()
 
 def calculate_indicators(df):
-    """Calculates RSI (Wilder 14) and EMA."""
+    """Calculates RSI (Wilder 14) and EMA (9) using Pandas/Numpy."""
     if df.empty or len(df) < RSI_PERIOD + 1: return df
 
-    close = df['close'].values
+    # Manual Calculation (Pandas) to avoid talib/numba dependency issues
+    delta = df['close'].diff()
 
-    # RSI Wilder 14
-    # Trying TA-Lib first
-    try:
-        import talib
-        df['RSI'] = talib.RSI(close, timeperiod=RSI_PERIOD)
-        df['EMA'] = talib.EMA(close, timeperiod=EMA_PERIOD)
-    except ImportError:
-        # Manual Calculation (Pandas)
-        delta = df['close'].diff()
+    # Wilder's Smoothing for RSI
+    up, down = delta.copy(), delta.copy()
+    up[up < 0] = 0
+    down[down > 0] = 0
 
-        # Wilder's Smoothing for RSI
-        up, down = delta.copy(), delta.copy()
-        up[up < 0] = 0
-        down[down > 0] = 0
+    # Calculate the EMA for RSI (Wilder uses EMA-like smoothing, alpha=1/14)
+    roll_up = up.ewm(com=RSI_PERIOD - 1, adjust=False).mean()
+    roll_down = down.abs().ewm(com=RSI_PERIOD - 1, adjust=False).mean()
 
-        # Calculate the EMA for RSI (Wilder uses EMA-like smoothing, alpha=1/14)
-        roll_up = up.ewm(com=RSI_PERIOD - 1, adjust=False).mean()
-        roll_down = down.abs().ewm(com=RSI_PERIOD - 1, adjust=False).mean()
+    RS = roll_up / roll_down
+    df['RSI'] = 100.0 - (100.0 / (1.0 + RS))
 
-        RS = roll_up / roll_down
-        df['RSI'] = 100.0 - (100.0 / (1.0 + RS))
-
-        # Simple EMA for Price
-        df['EMA'] = df['close'].ewm(span=EMA_PERIOD, adjust=False).mean()
+    # EMA 9 for Price
+    df['EMA'] = df['close'].ewm(span=EMA_PERIOD, adjust=False).mean()
 
     return df
 
@@ -105,7 +92,8 @@ def calculate_indicators(df):
 
 def scan_and_trade():
     """Scans TSLA and attempts to trade based on RSI/EMA."""
-    # Time Filter: Wait until 09:45 ET (15h45 Paris)
+
+    # Start Time Filter: Wait until 09:45 ET
     ny_tz = pytz.timezone('America/New_York')
     now_ny = datetime.now(ny_tz).time()
     start_time = dtime(9, 45)
@@ -135,29 +123,17 @@ def scan_and_trade():
 
     logger.info(f"{symbol} Analysis: RSI={last_rsi:.2f}, EMA={last_ema:.2f}, Close={last_close:.2f}")
 
-    # Strategy: Buy if RSI < 30 (Oversold) AND Price > EMA (Trend Support? Or maybe Mean Reversion?)
-    # "RSI Wilder 14 + EMA + TSLA" implies using them together.
-    # Common Mean Reversion: RSI < 30 (Buy).
-    # Common Trend Following: Price > EMA (Buy).
-    # Let's combine: Buy if RSI < 40 (Dip in Trend) AND Price > EMA (Up Trend)
-    # Or strict RSI < 30.
-    # User said "RSI Wilder 14 + EMA". I will use:
-    # BUY: RSI < 30 (Oversold condition)
-    # FILTER: Price > EMA (Trend is up, buying the dip)
-
-    # V7.2.5 Strategy:
-    # Buy when RSI dips below 30 and price is above EMA (Pullback in uptrend)
+    # V7.2.5 Condition: Buy if RSI < 30 AND Price > EMA
     buy_signal = (last_rsi < 30) and (last_close > last_ema)
 
     if buy_signal:
         logger.info(f"✅ {symbol} BUY SIGNAL (RSI < 30 & Price > EMA). Placing Bracket Order.")
 
-        # Native V7.2.5 Quantity: 1 Share (Standard)
+        # Quantity: 1 Share (Standard V7.2.5)
         qty = 1
 
         try:
-            # Native V7.2.5 Bracket Management
-            # TP: +5%, SL: -3%
+            # Bracket Order (TP +5%, SL -3%)
             take_profit_price = round(last_close * 1.05, 2)
             stop_loss_price = round(last_close * 0.97, 2)
 
@@ -165,7 +141,7 @@ def scan_and_trade():
                 symbol=symbol,
                 qty=qty,
                 side='buy',
-                type='market', # V7.2.5 used Market execution for speed
+                type='market', # V7.2.5 Standard Execution
                 time_in_force='gtc',
                 order_class='bracket',
                 take_profit={'limit_price': take_profit_price},
@@ -194,20 +170,17 @@ def update_positions():
 def run_scheduler():
     logger.info("Scheduler started.")
     # Frequent scan for RSI strategy
-    schedule.every(5).minutes.do(scan_and_trade)
-    schedule.every(1).minutes.do(update_positions)
+    schedule.every(1).minutes.do(scan_and_trade)
 
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 def main():
-    logger.info("Starting Jules V7.2.5 (RSI+EMA TSLA)...")
+    logger.info("Starting Jules V7.2.5 (Standard Production)...")
     update_positions()
 
-    # Run scan immediately on startup
-    scan_and_trade()
-
+    # Start Scheduler in separate thread
     threading.Thread(target=run_scheduler, daemon=True).start()
 
     # Keep main thread alive
