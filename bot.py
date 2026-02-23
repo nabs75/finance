@@ -1,191 +1,148 @@
-import os
-import time
-import logging
-import threading
-import schedule
 import pandas as pd
 import numpy as np
-import pytz
-from datetime import datetime, time as dtime
-from dotenv import load_dotenv
 import alpaca_trade_api as tradeapi
-from polygon import WebSocketClient
+import time, json, os
+from datetime import datetime
+from dotenv import load_dotenv
 
-# --- CONFIGURATION (V7.2.5 Standard) ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("Jules-V7.2.5")
-
+# --- CONFIGURATION EXPERT (Architecture Low-RAM) ---
 load_dotenv()
-ALPACA_API_KEY = os.getenv('ALPACA_API_KEY')
-ALPACA_SECRET_KEY = os.getenv('ALPACA_SECRET_KEY')
-ALPACA_BASE_URL = os.getenv('ALPACA_BASE_URL')
-POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
+API_KEY = os.getenv('ALPACA_API_KEY')
+SECRET_KEY = os.getenv('ALPACA_SECRET_KEY')
+BASE_URL = os.getenv('ALPACA_BASE_URL')
 
-# Check keys
-if not all([ALPACA_API_KEY, ALPACA_SECRET_KEY, POLYGON_API_KEY]):
-    logger.error("Missing API Keys in .env")
+WATCHLIST = ['TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMD', 'META', 'GOOGL']
+WEB_PATH = 'status.json' # Adjusted for local sandbox permissions
+
+if not all([API_KEY, SECRET_KEY, BASE_URL]):
+    print("❌ Erreur: Clés API manquantes dans .env")
     exit(1)
 
-# Initialize Alpaca API
-try:
-    api = tradeapi.REST(ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL)
-    account = api.get_account()
-    logger.info(f"Connected to Alpaca: {account.status} (ID: {account.id})")
-except Exception as e:
-    logger.error(f"Failed to connect to Alpaca: {e}")
-    exit(1)
+alpaca = tradeapi.REST(API_KEY, SECRET_KEY, BASE_URL, api_version='v2')
 
-# Global State
-positions = {} # {symbol: avg_entry_price}
-target_asset = "TSLA"
-EMA_PERIOD = 9  # V7.2.5 Requirement
-RSI_PERIOD = 14 # V7.2.5 Requirement
-
-# --- MARKET DATA & INDICATORS ---
-
-def get_market_data(api, symbol):
-    """
-    Fetches market data (15m bars) for indicator calculation.
-    """
+def get_bars_df(symbol, timeframe, limit):
+    """Helper to convert Alpaca Bars to DataFrame"""
     try:
-        # Fetch 15m Bars (need enough for RSI 14 + EMA 9)
-        # Using string '15Min' which is compatible with Alpaca SDK
-        bars_15m_raw = api.get_bars(symbol, '15Min', limit=100)
-        bars_15m = pd.DataFrame([b._raw for b in bars_15m_raw])
-        if not bars_15m.empty:
-             bars_15m['timestamp'] = pd.to_datetime(bars_15m['t'])
-             bars_15m.set_index('timestamp', inplace=True)
-             bars_15m.rename(columns={'c': 'close', 'v': 'volume', 'o': 'open', 'h': 'high', 'l': 'low'}, inplace=True)
-             return bars_15m
-        else:
-             return pd.DataFrame()
-
+        bars = alpaca.get_bars(symbol, timeframe, limit=limit)
+        df = pd.DataFrame([b._raw for b in bars])
+        if not df.empty:
+            df['t'] = pd.to_datetime(df['t'])
+            df.set_index('t', inplace=True)
+            df.rename(columns={'c': 'close', 'h': 'high', 'l': 'low', 'o': 'open', 'v': 'volume'}, inplace=True)
+        return df
     except Exception as e:
-        logger.error(f"Error fetching data for {symbol}: {e}")
+        print(f"Data fetch error for {symbol}: {e}")
         return pd.DataFrame()
 
-def calculate_indicators(df):
-    """Calculates RSI (Wilder 14) and EMA (9) using Pandas/Numpy."""
-    if df.empty or len(df) < RSI_PERIOD + 1: return df
+def get_quant_metrics(df):
+    """ Moteur de calcul vectorisé (Optimisé CPU) """
+    if len(df) < 15: return 50, 0, 0 # Not enough data
 
-    # Manual Calculation (Pandas) to avoid talib/numba dependency issues
+    # 1. ATR (Average True Range) pour Stop-Loss dynamique
+    high_low = df['high'] - df['low']
+    high_close = abs(df['high'] - df['close'].shift())
+    low_close = abs(df['low'] - df['close'].shift())
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr = tr.rolling(14).mean().iloc[-1]
+
+    # 2. RSI & EMA
     delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
 
-    # Wilder's Smoothing for RSI
-    up, down = delta.copy(), delta.copy()
-    up[up < 0] = 0
-    down[down > 0] = 0
-
-    # Calculate the EMA for RSI (Wilder uses EMA-like smoothing, alpha=1/14)
-    roll_up = up.ewm(com=RSI_PERIOD - 1, adjust=False).mean()
-    roll_down = down.abs().ewm(com=RSI_PERIOD - 1, adjust=False).mean()
-
-    RS = roll_up / roll_down
-    df['RSI'] = 100.0 - (100.0 / (1.0 + RS))
-
-    # EMA 9 for Price
-    df['EMA'] = df['close'].ewm(span=EMA_PERIOD, adjust=False).mean()
-
-    return df
-
-# --- TRADING LOGIC (V7.2.5 RSI + EMA + TSLA) ---
-
-def scan_and_trade():
-    """Scans TSLA and attempts to trade based on RSI/EMA."""
-
-    # Start Time Filter: Wait until 09:45 ET
-    ny_tz = pytz.timezone('America/New_York')
-    now_ny = datetime.now(ny_tz).time()
-    start_time = dtime(9, 45)
-
-    if now_ny < start_time:
-        logger.info(f"⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: {now_ny.strftime('%H:%M:%S')}")
-        return
-
-    logger.info(f"Scanning {target_asset} (V7.2.5 Strategy)...")
-    global positions
-    update_positions()
-
-    symbol = target_asset
-
-    # Don't buy if already held
-    if symbol in positions:
-        logger.info(f"Already holding {symbol}. Skipping buy scan.")
-        return
-
-    df_15m = get_market_data(api, symbol)
-    if df_15m.empty: return
-
-    df_15m = calculate_indicators(df_15m)
-    last_rsi = df_15m['RSI'].iloc[-1]
-    last_ema = df_15m['EMA'].iloc[-1]
-    last_close = df_15m['close'].iloc[-1]
-
-    logger.info(f"{symbol} Analysis: RSI={last_rsi:.2f}, EMA={last_ema:.2f}, Close={last_close:.2f}")
-
-    # V7.2.5 Condition: Buy if RSI < 30 AND Price > EMA
-    buy_signal = (last_rsi < 30) and (last_close > last_ema)
-
-    if buy_signal:
-        logger.info(f"✅ {symbol} BUY SIGNAL (RSI < 30 & Price > EMA). Placing Bracket Order.")
-
-        # Quantity: 1 Share (Standard V7.2.5)
-        qty = 1
-
-        try:
-            # Bracket Order (TP +5%, SL -3%)
-            take_profit_price = round(last_close * 1.05, 2)
-            stop_loss_price = round(last_close * 0.97, 2)
-
-            order = api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side='buy',
-                type='market', # V7.2.5 Standard Execution
-                time_in_force='gtc',
-                order_class='bracket',
-                take_profit={'limit_price': take_profit_price},
-                stop_loss={'stop_price': stop_loss_price}
-            )
-            logger.info(f"Bracket Order Submitted: {order.id} | TP: {take_profit_price} | SL: {stop_loss_price}")
-        except Exception as e:
-            logger.error(f"Failed to submit bracket order for {symbol}: {e}")
+    # Handle division by zero for RSI
+    loss_val = loss.iloc[-1]
+    if loss_val == 0:
+        rsi = 100
     else:
-        logger.info(f"No signal for {symbol}.")
+        rs = gain.iloc[-1] / loss_val
+        rsi = 100 - (100 / (1 + rs))
 
-def update_positions():
-    """Fetches open positions from Alpaca."""
-    global positions
+    ema = df['close'].ewm(span=9).mean().iloc[-1]
+
+    return rsi, ema, atr
+
+def compute_position_size(cash, price, atr):
+    """ Application stricte de la Règle des 3% et Kelly """
+    risk_per_trade = cash * 0.03  # Risque max 3% du capital
+    stop_loss_dist = atr * 2      # SL à 2x l'ATR (volatilité réelle)
+
+    if stop_loss_dist == 0: return 0, 0, 0
+
+    qty = int(risk_per_trade / stop_loss_dist)
+
+    # Limite Kelly Fractionnaire (Sécurité - Max 10% allocation)
+    if price > 0:
+        kelly_limit = int((cash * 0.10) / price)
+        final_qty = min(qty, kelly_limit)
+    else:
+        final_qty = 0
+
+    sl = round(price - stop_loss_dist, 2)
+    tp = round(price + (stop_loss_dist * 2), 2) # Ratio R/R de 2.0
+
+    return final_qty, sl, tp
+
+# --- BOUCLE DE CONTRÔLE ---
+print(f"🚀 JULES V8.0 STARTING... [Mode: Quantitative Risk Management]")
+
+# Verify connection
+try:
+    acct = alpaca.get_account()
+    print(f"Connected: {acct.status} | Cash: ${acct.cash}")
+except Exception as e:
+    print(f"Connection Failed: {e}")
+    exit(1)
+
+while True:
     try:
-        pos_list = api.list_positions()
-        new_positions = {}
-        for p in pos_list:
-            new_positions[p.symbol] = float(p.avg_entry_price)
-        positions = new_positions
+        account = alpaca.get_account()
+        cash = float(account.cash)
+        dashboard_data = []
+
+        for symbol in WATCHLIST:
+            # Fix: Use helper to get DataFrame
+            bars = get_bars_df(symbol, "15Min", limit=50)
+            if bars.empty: continue
+
+            rsi, ema, atr = get_quant_metrics(bars)
+            price = bars['close'].iloc[-1]
+
+            # Logique d'entrée V8.0
+            # RSI < 30 (Oversold) AND Price > EMA (Trend)
+            if rsi < 30 and price > ema:
+                try:
+                    # Check if position exists
+                    pos = alpaca.get_position(symbol)
+                    print(f"Position held for {symbol}. Skipping.")
+                except:
+                    # No position, calculate size
+                    qty, sl, tp = compute_position_size(cash, price, atr)
+                    if qty > 0:
+                        print(f"🎯 SIGNAL DETECTÉ: {symbol} | Price: {price} | Qty: {qty} | SL: {sl} | TP: {tp}")
+                        try:
+                            alpaca.submit_order(
+                                symbol=symbol, qty=qty, side='buy', type='market',
+                                time_in_force='gtc', order_class='bracket',
+                                take_profit={'limit_price': tp},
+                                stop_loss={'stop_price': sl}
+                            )
+                            print(f"✅ Order Sent for {symbol}")
+                        except Exception as order_err:
+                            print(f"❌ Order Failed: {order_err}")
+
+            dashboard_data.append({
+                "symbol": symbol, "price": round(price, 2),
+                "rsi": round(rsi, 2), "atr": round(atr, 2), "status": "SCANNING"
+            })
+            time.sleep(1) # API Rate limit protection
+
+        # Sync Dashboard
+        with open(WEB_PATH, 'w') as f:
+            json.dump({"update": datetime.now().strftime("%H:%M"), "assets": dashboard_data}, f)
+
     except Exception as e:
-        logger.error(f"Error updating positions: {e}")
+        print(f"⚠️ Alerte Jules: {e}")
 
-# --- MAIN ENGINE ---
-
-def run_scheduler():
-    logger.info("Scheduler started.")
-    # Frequent scan for RSI strategy
-    schedule.every(1).minutes.do(scan_and_trade)
-
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-def main():
-    logger.info("Starting Jules V7.2.5 (Standard Production)...")
-    update_positions()
-
-    # Start Scheduler in separate thread
-    threading.Thread(target=run_scheduler, daemon=True).start()
-
-    # Keep main thread alive
-    while True:
-        time.sleep(1)
-
-if __name__ == "__main__":
-    main()
+    # Wait before next scan loop
+    time.sleep(60)
