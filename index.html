@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jules Trading Dashboard</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: white; font-family: sans-serif; }
+    </style>
+</head>
+<body class="p-6">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-blue-400">🚀 Alpha-5 Trading Bot</h1>
+            <div class="text-gray-400 text-sm">
+                Last Update: <span id="last-update" class="font-mono text-white">--:--</span>
+            </div>
+        </header>
+
+        <div class="overflow-x-auto bg-gray-900 rounded-lg shadow-xl">
+            <table class="min-w-full bg-gray-800 text-white">
+                <thead>
+                    <tr class="bg-gray-700">
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">Valeur</th>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">Prix</th>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">RSI</th>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">ATR (Vol)</th>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">Statut</th>
+                    </tr>
+                </thead>
+                <tbody id="trading-body">
+                    <!-- Rows will be injected by script.js -->
+                </tbody>
+            </table>
+        </div>
+
+        <footer class="mt-8 text-center text-gray-500 text-xs">
+            Powered by Jules V8.0 • Qualitative Risk Management
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
