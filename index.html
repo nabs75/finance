@@ -4,19 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jules Trading Dashboard</title>
-    <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0f172a; color: white; font-family: sans-serif; }
     </style>
 </head>
 <body class="p-6">
-
     <div class="max-w-4xl mx-auto">
         <header class="flex justify-between items-center mb-6">
             <h1 class="text-3xl font-bold text-blue-400">🚀 Alpha-5 Trading Bot</h1>
             <div class="text-gray-400 text-sm">
-                Last Update: <span id="last-update" class="font-mono text-white">--:--</span>
+                Last Update: <span class="font-mono text-white">18:25</span>
             </div>
         </header>
 
@@ -32,7 +30,79 @@
                     </tr>
                 </thead>
                 <tbody id="trading-body">
-                    <!-- Rows will be injected by script.js -->
+
+        <tr>
+            <td class="px-4 py-2 border-b border-gray-700">NVDA</td>
+            <td class="px-4 py-2 border-b border-gray-700">191.2 $</td>
+            <td class="px-4 py-2 border-b border-gray-700 text-green-400">42.8</td>
+            <td class="px-4 py-2 border-b border-gray-700">0.99</td>
+            <td class="px-4 py-2 border-b border-gray-700">
+                <span class="px-2 py-1 rounded text-xs bg-blue-900">
+                    SCAN
+                </span>
+            </td>
+        </tr>
+
+        <tr>
+            <td class="px-4 py-2 border-b border-gray-700">AAPL</td>
+            <td class="px-4 py-2 border-b border-gray-700">268.85 $</td>
+            <td class="px-4 py-2 border-b border-gray-700 text-green-400">72.35</td>
+            <td class="px-4 py-2 border-b border-gray-700">1.21</td>
+            <td class="px-4 py-2 border-b border-gray-700">
+                <span class="px-2 py-1 rounded text-xs bg-blue-900">
+                    SCAN
+                </span>
+            </td>
+        </tr>
+
+        <tr>
+            <td class="px-4 py-2 border-b border-gray-700">MSFT</td>
+            <td class="px-4 py-2 border-b border-gray-700">387.14 $</td>
+            <td class="px-4 py-2 border-b border-gray-700 text-green-400">45.93</td>
+            <td class="px-4 py-2 border-b border-gray-700">1.5</td>
+            <td class="px-4 py-2 border-b border-gray-700">
+                <span class="px-2 py-1 rounded text-xs bg-blue-900">
+                    SCAN
+                </span>
+            </td>
+        </tr>
+
+        <tr>
+            <td class="px-4 py-2 border-b border-gray-700">AMD</td>
+            <td class="px-4 py-2 border-b border-gray-700">196.14 $</td>
+            <td class="px-4 py-2 border-b border-gray-700 text-green-400">43.57</td>
+            <td class="px-4 py-2 border-b border-gray-700">1.35</td>
+            <td class="px-4 py-2 border-b border-gray-700">
+                <span class="px-2 py-1 rounded text-xs bg-blue-900">
+                    SCAN
+                </span>
+            </td>
+        </tr>
+
+        <tr>
+            <td class="px-4 py-2 border-b border-gray-700">META</td>
+            <td class="px-4 py-2 border-b border-gray-700">643.6 $</td>
+            <td class="px-4 py-2 border-b border-gray-700 text-green-400">37.16</td>
+            <td class="px-4 py-2 border-b border-gray-700">2.66</td>
+            <td class="px-4 py-2 border-b border-gray-700">
+                <span class="px-2 py-1 rounded text-xs bg-blue-900">
+                    SCAN
+                </span>
+            </td>
+        </tr>
+
+        <tr>
+            <td class="px-4 py-2 border-b border-gray-700">GOOGL</td>
+            <td class="px-4 py-2 border-b border-gray-700">314.32 $</td>
+            <td class="px-4 py-2 border-b border-gray-700 text-green-400">41.35</td>
+            <td class="px-4 py-2 border-b border-gray-700">1.35</td>
+            <td class="px-4 py-2 border-b border-gray-700">
+                <span class="px-2 py-1 rounded text-xs bg-blue-900">
+                    SCAN
+                </span>
+            </td>
+        </tr>
+
                 </tbody>
             </table>
         </div>
@@ -41,7 +111,5 @@
             Powered by Jules V8.0 • Qualitative Risk Management
         </footer>
     </div>
-
-    <script src="script.js"></script>
 </body>
 </html>
