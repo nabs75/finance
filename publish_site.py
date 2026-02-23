@@ -4,33 +4,42 @@ import subprocess
 from datetime import datetime
 
 # --- CONFIGURATION ---
-REPO_PATH = "." # Current directory in sandbox
+REPO_PATH = "." # Current directory in sandbox (adjust to /root/jules_bot/ on VPS)
 STATUS_FILE = "status.json"
 HTML_FILE = "index.html"
+TARGET_WATCHLIST = ['TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMD', 'META', 'GOOGL']
 
 def generate_html(data):
-    """Generates the static index.html from status.json data."""
+    """Generates the static index.html forcing 7 rows."""
 
     last_update = data.get("update", datetime.now().strftime("%H:%M"))
-    assets = data.get("assets", [])
+    assets_list = data.get("assets", [])
+
+    # Convert list to dict for easy lookup
+    assets_map = {a['symbol']: a for a in assets_list}
 
     rows_html = ""
-    for asset in assets:
-        symbol = asset.get("symbol", "N/A")
-        price = asset.get("price", 0)
-        rsi = asset.get("rsi", 0)
-        atr = asset.get("atr", 0)
-        status = asset.get("status", "SCAN")
+    for symbol in TARGET_WATCHLIST:
+        asset = assets_map.get(symbol, {})
 
-        # Logic for styling
-        rsi_class = "text-red-500 font-bold" if rsi < 30 else "text-green-400"
-        badge_class = "bg-red-900" if rsi < 30 else "bg-blue-900"
-        status_text = "SIGNAL" if rsi < 30 else "SCAN" # Or rely on asset['status']
+        # Data Extraction with "En attente" fallback
+        price = asset.get("price", "En attente")
+        if isinstance(price, (int, float)): price = f"{price} $"
+
+        rsi = asset.get("rsi", "-")
+        atr = asset.get("atr", "-")
+        status = asset.get("status", "OFFLINE")
+
+        # Styling
+        rsi_val = float(rsi) if isinstance(rsi, (int, float)) else 100
+        rsi_class = "text-red-500 font-bold" if rsi_val < 30 else "text-green-400"
+        badge_class = "bg-red-900" if rsi_val < 30 else "bg-blue-900"
+        status_text = "SIGNAL" if rsi_val < 30 else (status if status != "OFFLINE" else "WAITING")
 
         rows_html += f"""
         <tr>
             <td class="px-4 py-2 border-b border-gray-700">{symbol}</td>
-            <td class="px-4 py-2 border-b border-gray-700">{price} $</td>
+            <td class="px-4 py-2 border-b border-gray-700">{price}</td>
             <td class="px-4 py-2 border-b border-gray-700 {rsi_class}">{rsi}</td>
             <td class="px-4 py-2 border-b border-gray-700">{atr}</td>
             <td class="px-4 py-2 border-b border-gray-700">
@@ -79,7 +88,7 @@ def generate_html(data):
         </div>
 
         <footer class="mt-8 text-center text-gray-500 text-xs">
-            Powered by Jules V8.0 • Qualitative Risk Management
+            Powered by Jules V8.1 • Force Web 7
         </footer>
     </div>
 </body>
@@ -89,26 +98,17 @@ def generate_html(data):
 def main():
     try:
         # 1. Read Data
-        with open(STATUS_FILE, 'r') as f:
-            data = json.load(f)
+        if os.path.exists(STATUS_FILE):
+            with open(STATUS_FILE, 'r') as f:
+                data = json.load(f)
+        else:
+            data = {"update": "Wait...", "assets": []}
 
         # 2. Generate HTML
         html = generate_html(data)
         with open(HTML_FILE, 'w') as f:
             f.write(html)
-        print(f"✅ Generated {HTML_FILE} with {len(data.get('assets', []))} rows.")
-
-        # 3. Git Operations
-        os.chdir(REPO_PATH)
-        subprocess.run(["git", "add", HTML_FILE], check=True)
-        # Using a timestamp in commit message
-        commit_msg = f"Auto-update site: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        subprocess.run(["git", "commit", "-m", commit_msg], check=False) # check=False in case nothing to commit
-
-        # Push (Manual execution requested)
-        print("🚀 Pushing to GitHub...")
-        subprocess.run(["git", "push", "origin", "main"], check=True)
-        print("✅ Deployment Complete.")
+        print(f"✅ Generated {HTML_FILE} with strict 7-asset layout.")
 
     except Exception as e:
         print(f"❌ Error: {e}")
