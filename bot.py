@@ -5,6 +5,8 @@ import threading
 import schedule
 import pandas as pd
 import numpy as np
+import pytz
+from datetime import datetime, time as dtime
 from dotenv import load_dotenv
 import alpaca_trade_api as tradeapi
 from polygon import WebSocketClient
@@ -103,6 +105,15 @@ def calculate_indicators(df):
 
 def scan_and_trade():
     """Scans TSLA and attempts to trade based on RSI/EMA."""
+    # Time Filter: Wait until 09:45 ET (15h45 Paris)
+    ny_tz = pytz.timezone('America/New_York')
+    now_ny = datetime.now(ny_tz).time()
+    start_time = dtime(9, 45)
+
+    if now_ny < start_time:
+        logger.info(f"⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: {now_ny.strftime('%H:%M:%S')}")
+        return
+
     logger.info(f"Scanning {target_asset} (V7.2.5 Strategy)...")
     global positions
     update_positions()

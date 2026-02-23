@@ -1,7 +1,6 @@
-2026-02-23 13:46:46,627 - INFO - Connected to Alpaca: ACTIVE (ID: f58cc241-03a0-4d4a-841e-19d22948b85b)
-2026-02-23 13:46:46,628 - INFO - Starting Jules V7.2.5 (RSI+EMA TSLA)...
-2026-02-23 13:46:46,657 - INFO - Scanning TSLA (V7.2.5 Strategy)...
-2026-02-23 13:46:46,860 - INFO - TSLA Analysis: RSI=26.68, EMA=408.31, Close=407.81
-2026-02-23 13:46:46,860 - INFO - No signal for TSLA.
-2026-02-23 13:46:46,860 - INFO - Scheduler started.
+2026-02-23 13:55:44,531 - INFO - Connected to Alpaca: ACTIVE (ID: f58cc241-03a0-4d4a-841e-19d22948b85b)
+2026-02-23 13:55:44,531 - INFO - Starting Jules V7.2.5 (RSI+EMA TSLA)...
+2026-02-23 13:55:44,641 - INFO - ⏳ Market Opening Wait. Scanner starts at 09:45 ET. Current: 08:55:44
+2026-02-23 13:55:44,642 - INFO - Scheduler started.
+ Current: 08:55:44
 Scheduler started.
