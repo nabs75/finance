@@ -11,8 +11,40 @@ st.set_page_config(page_title="Alpha-5 Trading Dashboard", layout="wide", page_i
 
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: white; }
-    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; }
+    /* Supprimer les marges inutiles en haut */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 0rem !important;
+    }
+    /* Style des blocs de stats ultra-compacts */
+    [data-testid="stMetric"] {
+        background-color: #0e1117 !important;
+        border: 1px solid #1e293b !important;
+        border-radius: 8px !important;
+        padding: 8px !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    /* Titre des stats (Cash, Valeur...) */
+    [data-testid="stMetricLabel"] {
+        font-size: 0.65rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        color: #94a3b8 !important;
+        margin-bottom: -10px !important;
+    }
+    /* Valeur numérique */
+    [data-testid="stMetricValue"] {
+        font-size: 1rem !important;
+        font-weight: 800 !important;
+        color: #00d4ff !important;
+    }
+    /* Force l'alignement sur une seule ligne même sur mobile */
+    [data-testid="stHorizontalBlock"] {
+        gap: 8px !important;
+    }
+    /* Cacher le menu Streamlit pour gagner de la place */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -65,10 +97,19 @@ try:
 
     # --- BARRE DE MÉTRIQUES ---
     col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Solde Cash", f"{float(account.cash):.2f} $")
-    col2.metric("📊 Valeur Portefeuille", f"{float(account.portfolio_value):.2f} $")
+
+    cash_balance = float(account.cash)
+    portfolio_value = float(account.portfolio_value)
     profit_today = float(account.equity) - float(account.last_equity)
-    col3.metric("📅 Profit Jour", f"{profit_today:.2f} $", f"{round((profit_today/float(account.last_equity))*100,2)}%")
+    profit_pct = round((profit_today/float(account.last_equity))*100, 2)
+
+    with col1:
+        st.metric("Solde Cash", f"{cash_balance:,.2f} $")
+    with col2:
+        st.metric("Portefeuille", f"{portfolio_value:,.2f} $")
+    with col3:
+        # Affiche le profit du jour avec une flèche (delta)
+        st.metric("Profit Jour", f"{profit_today:,.2f} $", delta=f"{profit_pct}%")
 
     st.divider()
 
