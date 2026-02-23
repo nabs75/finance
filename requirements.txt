@@ -5,3 +5,5 @@ pytz
 python-dotenv
 schedule
 polygon-api-client
+streamlit
+plotly
