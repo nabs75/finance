@@ -61,7 +61,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3Version")
 
     implementation("io.coil-kt:coil-compose:2.6.0")
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:0.24.4")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.4")
 
     testImplementation("junit:junit:4.13.2")
 }
