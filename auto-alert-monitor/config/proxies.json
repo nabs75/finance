@@ -1,0 +1,15 @@
+{
+  "proxies": [
+    {
+      "server": "http://votre-proxy-1.com:8080",
+      "username": "user",
+      "password": "password"
+    },
+    {
+      "server": "http://votre-proxy-2.com:8080",
+      "username": "user",
+      "password": "password"
+    }
+  ],
+  "use_proxies": false
+}

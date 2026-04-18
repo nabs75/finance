@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Alert Monitor | Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+    <header class="dashboard-header">
+        <div class="container">
+            <div class="header-content">
+                <div class="brand">
+                    <span class="logo">🏎️</span>
+                    <h1>Auto-Alert <span class="accent">Monitor</span></h1>
+                </div>
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-value" id="total-scanned">--</span>
+                        <span class="stat-label">Véhicules vus</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="active-filters">--</span>
+                        <span class="stat-label">Filtres actifs</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="controls">
+            <h2>Dernières Trouvailles</h2>
+            <div class="filters-summary" id="filters-list">
+                <!-- Les filtres actifs seront affichés ici -->
+            </div>
+        </section>
+
+        <div id="cars-grid" class="cars-grid">
+            <div class="loader">Analyse des bases de données...</div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>Auto-Alert Monitor v1.0 | Real-time European Car Scouting</p>
+    </footer>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

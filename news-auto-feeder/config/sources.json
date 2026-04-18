@@ -1,0 +1,27 @@
+{
+  "sources": [
+    {
+      "name": "BBC World",
+      "url": "http://feeds.bbci.co.uk/news/world/rss.xml",
+      "type": "rss",
+      "language": "en"
+    },
+    {
+      "name": "Reuters World",
+      "url": "http://feeds.reuters.com/reuters/worldNews",
+      "type": "rss",
+      "language": "en"
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "type": "rss",
+      "language": "en"
+    }
+  ],
+  "rewriting": {
+    "target_language": "fr",
+    "tone": "journalistique professionnel",
+    "min_length": 300
+  }
+}
