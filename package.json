@@ -1,0 +1,20 @@
+{
+  "name": "geminicli-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo for Gemini CLI projects and skills",
+  "private": true,
+  "workspaces": [
+    "auto-alert-monitor",
+    "global-news-front",
+    "news-auto-feeder",
+    "test-interface"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
