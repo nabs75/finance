@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Code
-      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      uses: actions/checkout@v5
     
     - name: Set up JDK 17
-      uses: actions/setup-java@3a4f6e1af50496a3185856a474b17a3490b742d8
+      uses: actions/setup-java@v5
       with:
         java-version: '17'
         distribution: 'temurin'
@@ -25,7 +25,7 @@ jobs:
       working-directory: .
 
     - name: Upload APK
-      uses: actions/upload-artifact@4cec3d8aa04e39d727839c1b20f535e19e510854
+      uses: actions/upload-artifact@v5
       with:
         name: streamfree-music-debug
         path: streamfree-music-android/app/build/outputs/apk/debug/app-debug.apk
