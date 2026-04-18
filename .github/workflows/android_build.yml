@@ -18,13 +18,11 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
-    - name: Build with Gradle
+    - name: Build with System Gradle
       run: |
         cd streamfree-music-android
-        chmod +x gradlew || (echo "Generating gradlew..." && gradle wrapper)
-        ./gradlew assembleDebug
+        gradle assembleDebug
       working-directory: .
 
     - name: Upload APK
