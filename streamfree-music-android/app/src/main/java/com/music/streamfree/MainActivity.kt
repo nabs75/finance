@@ -9,6 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.music.streamfree.ui.search.MusicViewModel
 import com.music.streamfree.ui.search.SearchScreen
 import com.music.streamfree.ui.theme.StreamFreeTheme
 import dagger.hilt.android.AndroidEntryPoint
