@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") } // Nécessaire pour NewPipeExtractor
+        maven { url = uri("https://jitpack.io") } // Emplacement critique pour Gradle 8.7
     }
 }
 rootProject.name = "StreamFreeMusic"
